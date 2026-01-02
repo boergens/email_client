@@ -126,13 +126,14 @@ def get_user_email(service):
 
 
 @mcp.tool()
-def send_email(to: str, subject: str, body: str, reply_to_id: str = "") -> str:
+def send_email(to: str, subject: str, body: str, cc: str = "", reply_to_id: str = "") -> str:
     """Send an email.
 
     Args:
         to: Recipient email address
         subject: Email subject
         body: Email body (plain text)
+        cc: Optional CC recipients (comma-separated email addresses)
         reply_to_id: Optional email ID to reply to (adds In-Reply-To header)
     """
     service = get_gmail_service()
@@ -143,6 +144,8 @@ def send_email(to: str, subject: str, body: str, reply_to_id: str = "") -> str:
     sender_email, sender_name = get_user_email(service)
     message['From'] = formataddr((sender_name, sender_email))
     message['To'] = to
+    if cc:
+        message['Cc'] = cc
     message['Subject'] = subject
 
     thread_id = None

@@ -14,11 +14,12 @@ Update this file when encountering new contacts or learning more about existing 
 ## Available tools
 - `list_emails` - List recent emails from inbox
 - `read_email` - Read full email content
-- `send_email` - Send emails (supports reply threading)
+- `send_email` - Send emails (supports reply threading and CC)
 - `search_emails` - Search with Gmail query syntax
 
 ## Guidelines
 - Before drafting a reply, read recent emails with that person to understand the relationship and pick the appropriate tone automatically
 - Check CC recipients from the email - they can dramatically shift tone (e.g., a VP on CC may require more formal/structured communication)
 - Research CC recipients if unfamiliar to understand their role and adjust accordingly
+- Preserve CC recipients from the original email when replying — do not remove anyone unless Kevin explicitly requests it
 - Always confirm with Kevin before sending
