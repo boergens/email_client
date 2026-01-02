@@ -1,0 +1,17 @@
+# Credentials and tokens
+client_secret_*.json
+token.json
+calendar_token.json
+
+# Personal data
+address_book.md
+
+# Virtual environment
+.venv/
+
+# Python
+__pycache__/
+*.pyc
+
+# Claude
+.claude/

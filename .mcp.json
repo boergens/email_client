@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "gmail": {
+      "command": "/Users/kevin/Documents/newstart/email_client/.venv/bin/python",
+      "args": ["/Users/kevin/Documents/newstart/email_client/gmail_mcp_server.py"]
+    },
+    "calendar": {
+      "command": "/Users/kevin/Documents/newstart/email_client/.venv/bin/python",
+      "args": ["/Users/kevin/Documents/newstart/email_client/calendar_mcp_server.py"]
+    },
+    "messages": {
+      "command": "/Users/kevin/Documents/newstart/email_client/.venv/bin/python",
+      "args": ["/Users/kevin/Documents/newstart/email_client/messages_mcp_server.py"]
+    }
+  }
+}
