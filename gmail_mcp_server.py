@@ -2,6 +2,7 @@
 """Gmail MCP Server - Read and send emails via Gmail API."""
 
 import base64
+import json
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.utils import formataddr
@@ -21,16 +22,33 @@ SCOPES = [
 
 DIR = Path(__file__).parent
 CREDENTIALS_FILE = list(DIR.glob("client_secret_*.json"))[0]
-TOKEN_FILE = DIR / "token.json"
+CONFIG_FILE = DIR / "accounts.json"
+
+
+def load_config():
+    """Load accounts configuration."""
+    if not CONFIG_FILE.exists():
+        return {"accounts": {"default": "token.json"}, "default_account": "default"}
+    return json.loads(CONFIG_FILE.read_text())
+
+
+config = load_config()
+ACCOUNTS = config.get("accounts", {"default": "token.json"})
+DEFAULT_ACCOUNT = config.get("default_account", list(ACCOUNTS.keys())[0])
 
 mcp = FastMCP("gmail")
 
 
-def get_gmail_service():
-    """Get authenticated Gmail service."""
+def get_gmail_service(account: str = ""):
+    """Get authenticated Gmail service for specified account."""
+    account = account or DEFAULT_ACCOUNT
+    if account not in ACCOUNTS:
+        raise ValueError(f"Unknown account: {account}. Valid accounts: {list(ACCOUNTS.keys())}")
+
+    token_file = DIR / ACCOUNTS[account]
     creds = None
-    if TOKEN_FILE.exists():
-        creds = Credentials.from_authorized_user_file(str(TOKEN_FILE), SCOPES)
+    if token_file.exists():
+        creds = Credentials.from_authorized_user_file(str(token_file), SCOPES)
 
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
@@ -38,20 +56,21 @@ def get_gmail_service():
         else:
             flow = InstalledAppFlow.from_client_secrets_file(str(CREDENTIALS_FILE), SCOPES)
             creds = flow.run_local_server(port=0)
-        TOKEN_FILE.write_text(creds.to_json())
+        token_file.write_text(creds.to_json())
 
     return build('gmail', 'v1', credentials=creds)
 
 
 @mcp.tool()
-def list_emails(max_results: int = 10, query: str = "") -> str:
+def list_emails(max_results: int = 10, query: str = "", account: str = "") -> str:
     """List recent emails from inbox.
 
     Args:
         max_results: Maximum number of emails to return (default 10)
         query: Gmail search query (e.g., "from:example@gmail.com", "is:unread", "subject:hello")
+        account: Account name from accounts.json. Uses default if not specified.
     """
-    service = get_gmail_service()
+    service = get_gmail_service(account)
     results = service.users().messages().list(
         userId='me',
         maxResults=max_results,
@@ -84,13 +103,14 @@ def list_emails(max_results: int = 10, query: str = "") -> str:
 
 
 @mcp.tool()
-def read_email(email_id: str) -> str:
+def read_email(email_id: str, account: str = "") -> str:
     """Read the full content of a specific email.
 
     Args:
         email_id: The ID of the email to read (from list_emails)
+        account: Account name from accounts.json. Uses default if not specified.
     """
-    service = get_gmail_service()
+    service = get_gmail_service(account)
     msg = service.users().messages().get(userId='me', id=email_id, format='full').execute()
 
     headers = {h['name']: h['value'] for h in msg['payload']['headers']}
@@ -126,7 +146,7 @@ def get_user_email(service):
 
 
 @mcp.tool()
-def send_email(to: str, subject: str, body: str, cc: str = "", reply_to_id: str = "") -> str:
+def send_email(to: str, subject: str, body: str, cc: str = "", bcc: str = "", reply_to_id: str = "", account: str = "") -> str:
     """Send an email.
 
     Args:
@@ -134,9 +154,11 @@ def send_email(to: str, subject: str, body: str, cc: str = "", reply_to_id: str 
         subject: Email subject
         body: Email body (plain text)
         cc: Optional CC recipients (comma-separated email addresses)
+        bcc: Optional BCC recipients (comma-separated email addresses)
         reply_to_id: Optional email ID to reply to (adds In-Reply-To header)
+        account: Account name from accounts.json. Uses default if not specified.
     """
-    service = get_gmail_service()
+    service = get_gmail_service(account)
 
     message = MIMEMultipart()
 
@@ -146,6 +168,8 @@ def send_email(to: str, subject: str, body: str, cc: str = "", reply_to_id: str 
     message['To'] = to
     if cc:
         message['Cc'] = cc
+    if bcc:
+        message['Bcc'] = bcc
     message['Subject'] = subject
 
     thread_id = None
@@ -171,7 +195,7 @@ def send_email(to: str, subject: str, body: str, cc: str = "", reply_to_id: str 
 
 
 @mcp.tool()
-def search_emails(query: str, max_results: int = 20) -> str:
+def search_emails(query: str, max_results: int = 20, account: str = "") -> str:
     """Search emails using Gmail's search syntax.
 
     Args:
@@ -182,8 +206,9 @@ def search_emails(query: str, max_results: int = 20) -> str:
                - "after:2024/01/01 before:2024/02/01"
                - "has:attachment"
         max_results: Maximum number of results (default 20)
+        account: Account name from accounts.json. Uses default if not specified.
     """
-    return list_emails(max_results=max_results, query=query)
+    return list_emails(max_results=max_results, query=query, account=account)
 
 
 if __name__ == "__main__":

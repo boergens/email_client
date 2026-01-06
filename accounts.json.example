@@ -1,0 +1,8 @@
+{
+  "accounts": {
+    "personal": "token_personal.json",
+    "work": "token_work.json"
+  },
+  "default_account": "personal",
+  "home_timezone": "America/Chicago"
+}

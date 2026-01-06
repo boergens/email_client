@@ -1,7 +1,8 @@
 # Credentials and tokens
 client_secret_*.json
-token.json
-calendar_token.json
+token*.json
+calendar_token*.json
+accounts.json
 
 # Personal data
 address_book.md

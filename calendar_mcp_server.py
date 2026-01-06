@@ -1,25 +1,15 @@
 #!/usr/bin/env python3
 """Google Calendar MCP Server - Manage calendar events via Google Calendar API.
 
-NOTE: This server assumes Kevin is in Central time (America/Chicago).
-If the laptop's timezone is not Central, create_event will require jetlag=True
+NOTE: Uses home_timezone from accounts.json (defaults to America/Chicago).
+If the laptop's timezone differs from home, create_event will require jetlag=True
 to prevent accidental scheduling mistakes when traveling.
 """
 
+import json
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
-
-HOME_TIMEZONE = 'America/Chicago'
-
-
-def is_in_home_timezone() -> bool:
-    """Check if the system is currently in Central time."""
-    # Central time offset: -6 hours (CST) or -5 hours (CDT)
-    offset_hours = -time.timezone // 3600
-    if time.daylight and time.localtime().tm_isdst:
-        offset_hours = -time.altzone // 3600
-    return offset_hours in (-6, -5)
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -31,16 +21,52 @@ SCOPES = ['https://www.googleapis.com/auth/calendar']
 
 DIR = Path(__file__).parent
 CREDENTIALS_FILE = list(DIR.glob("client_secret_*.json"))[0]
-TOKEN_FILE = DIR / "calendar_token.json"
+CONFIG_FILE = DIR / "accounts.json"
+
+
+def load_config():
+    """Load accounts configuration."""
+    if not CONFIG_FILE.exists():
+        return {"accounts": {"default": "calendar_token.json"}, "default_account": "default", "home_timezone": "America/Chicago"}
+    return json.loads(CONFIG_FILE.read_text())
+
+
+config = load_config()
+# Calendar uses separate token files with calendar_ prefix
+ACCOUNTS = {k: f"calendar_{v}" for k, v in config.get("accounts", {"default": "token.json"}).items()}
+DEFAULT_ACCOUNT = config.get("default_account", list(ACCOUNTS.keys())[0])
+HOME_TIMEZONE = config.get("home_timezone", "America/Chicago")
+
+# Timezone offset mapping for common US timezones
+TIMEZONE_OFFSETS = {
+    "America/New_York": (-5, -4),
+    "America/Chicago": (-6, -5),
+    "America/Denver": (-7, -6),
+    "America/Los_Angeles": (-8, -7),
+}
+
+
+def is_in_home_timezone() -> bool:
+    """Check if the system is currently in the configured home timezone."""
+    offset_hours = -time.timezone // 3600
+    if time.daylight and time.localtime().tm_isdst:
+        offset_hours = -time.altzone // 3600
+    expected_offsets = TIMEZONE_OFFSETS.get(HOME_TIMEZONE, (-6, -5))
+    return offset_hours in expected_offsets
 
 mcp = FastMCP("calendar")
 
 
-def get_calendar_service():
-    """Get authenticated Calendar service."""
+def get_calendar_service(account: str = ""):
+    """Get authenticated Calendar service for specified account."""
+    account = account or DEFAULT_ACCOUNT
+    if account not in ACCOUNTS:
+        raise ValueError(f"Unknown account: {account}. Valid accounts: {list(ACCOUNTS.keys())}")
+
+    token_file = DIR / ACCOUNTS[account]
     creds = None
-    if TOKEN_FILE.exists():
-        creds = Credentials.from_authorized_user_file(str(TOKEN_FILE), SCOPES)
+    if token_file.exists():
+        creds = Credentials.from_authorized_user_file(str(token_file), SCOPES)
 
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
@@ -48,20 +74,21 @@ def get_calendar_service():
         else:
             flow = InstalledAppFlow.from_client_secrets_file(str(CREDENTIALS_FILE), SCOPES)
             creds = flow.run_local_server(port=0)
-        TOKEN_FILE.write_text(creds.to_json())
+        token_file.write_text(creds.to_json())
 
     return build('calendar', 'v3', credentials=creds)
 
 
 @mcp.tool()
-def list_events(days: int = 7, max_results: int = 20) -> str:
+def list_events(days: int = 7, max_results: int = 20, account: str = "") -> str:
     """List upcoming calendar events.
 
     Args:
         days: Number of days to look ahead (default 7)
         max_results: Maximum number of events to return (default 20)
+        account: Account name from accounts.json. Uses default if not specified.
     """
-    service = get_calendar_service()
+    service = get_calendar_service(account)
     now = datetime.utcnow().isoformat() + 'Z'
     end = (datetime.utcnow() + timedelta(days=days)).isoformat() + 'Z'
 
@@ -100,13 +127,14 @@ def list_events(days: int = 7, max_results: int = 20) -> str:
 
 
 @mcp.tool()
-def get_event(event_id: str) -> str:
+def get_event(event_id: str, account: str = "") -> str:
     """Get details of a specific calendar event.
 
     Args:
         event_id: The ID of the event to retrieve
+        account: Account name from accounts.json. Uses default if not specified.
     """
-    service = get_calendar_service()
+    service = get_calendar_service(account)
     event = service.events().get(calendarId='primary', eventId=event_id).execute()
 
     attendees = event.get('attendees', [])
@@ -135,11 +163,12 @@ def create_event(
     description: str = "",
     location: str = "",
     attendees: str = "",
-    jetlag: bool = False
+    jetlag: bool = False,
+    account: str = ""
 ) -> str:
     """Create a new calendar event.
 
-    Times are interpreted as Central time (America/Chicago).
+    Times are interpreted in the configured home_timezone (see accounts.json).
 
     Args:
         summary: Event title
@@ -148,19 +177,20 @@ def create_event(
         description: Optional event description
         location: Optional event location
         attendees: Optional comma-separated list of attendee emails
-        jetlag: Set to True if traveling outside Central timezone
+        jetlag: Set to True if traveling outside your home timezone
+        account: Account name from accounts.json. Uses default if not specified.
     """
     if not is_in_home_timezone() and not jetlag:
         offset_hours = -time.timezone // 3600
         if time.daylight and time.localtime().tm_isdst:
             offset_hours = -time.altzone // 3600
         return (
-            f"ERROR: Laptop is not in Central time (detected UTC{offset_hours:+d}). "
+            f"ERROR: Laptop is not in home timezone {HOME_TIMEZONE} (detected UTC{offset_hours:+d}). "
             f"To create events while traveling, set jetlag=True to confirm you want "
-            f"to schedule in Central time despite being in a different timezone."
+            f"to schedule in {HOME_TIMEZONE} despite being in a different timezone."
         )
 
-    service = get_calendar_service()
+    service = get_calendar_service(account)
 
     event = {
         'summary': summary,
@@ -180,27 +210,29 @@ def create_event(
 
 
 @mcp.tool()
-def delete_event(event_id: str) -> str:
+def delete_event(event_id: str, account: str = "") -> str:
     """Delete a calendar event.
 
     Args:
         event_id: The ID of the event to delete
+        account: Account name from accounts.json. Uses default if not specified.
     """
-    service = get_calendar_service()
+    service = get_calendar_service(account)
     service.events().delete(calendarId='primary', eventId=event_id).execute()
     return f"Event {event_id} deleted successfully."
 
 
 @mcp.tool()
-def search_events(query: str, days: int = 30, max_results: int = 20) -> str:
+def search_events(query: str, days: int = 30, max_results: int = 20, account: str = "") -> str:
     """Search for calendar events.
 
     Args:
         query: Search query (matches event titles and descriptions)
         days: Number of days to search ahead (default 30)
         max_results: Maximum number of results (default 20)
+        account: Account name from accounts.json. Uses default if not specified.
     """
-    service = get_calendar_service()
+    service = get_calendar_service(account)
     now = datetime.utcnow().isoformat() + 'Z'
     end = (datetime.utcnow() + timedelta(days=days)).isoformat() + 'Z'
 
