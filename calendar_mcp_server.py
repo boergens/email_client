@@ -17,7 +17,7 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from mcp.server.fastmcp import FastMCP
 
-SCOPES = ['https://www.googleapis.com/auth/calendar']
+SCOPES = ['https://www.googleapis.com/auth/calendar', 'https://www.googleapis.com/auth/userinfo.email', 'openid']
 
 DIR = Path(__file__).parent
 CREDENTIALS_FILE = list(DIR.glob("client_secret_*.json"))[0]
@@ -33,7 +33,8 @@ def load_config():
 
 config = load_config()
 # Calendar uses separate token files with calendar_ prefix
-ACCOUNTS = {k: f"calendar_{v}" for k, v in config.get("accounts", {"default": "token.json"}).items()}
+ACCOUNTS = {k: {"token": f"calendar_{v['token']}", "email": v["email"]}
+            for k, v in config.get("accounts", {}).items()}
 DEFAULT_ACCOUNT = config.get("default_account", list(ACCOUNTS.keys())[0])
 HOME_TIMEZONE = config.get("home_timezone", "America/Chicago")
 
@@ -63,7 +64,9 @@ def get_calendar_service(account: str = ""):
     if account not in ACCOUNTS:
         raise ValueError(f"Unknown account: {account}. Valid accounts: {list(ACCOUNTS.keys())}")
 
-    token_file = DIR / ACCOUNTS[account]
+    account_info = ACCOUNTS[account]
+    token_file = DIR / account_info["token"]
+    expected_email = account_info["email"]
     creds = None
     if token_file.exists():
         creds = Credentials.from_authorized_user_file(str(token_file), SCOPES)
@@ -74,6 +77,15 @@ def get_calendar_service(account: str = ""):
         else:
             flow = InstalledAppFlow.from_client_secrets_file(str(CREDENTIALS_FILE), SCOPES)
             creds = flow.run_local_server(port=0)
+            # Verify the authenticated email matches expected
+            oauth2_service = build('oauth2', 'v2', credentials=creds)
+            user_info = oauth2_service.userinfo().get().execute()
+            actual_email = user_info.get('email')
+            if actual_email != expected_email:
+                raise ValueError(
+                    f"Wrong account! Expected {expected_email} but authenticated as {actual_email}. "
+                    f"Please re-authenticate with the correct Google account."
+                )
         token_file.write_text(creds.to_json())
 
     return build('calendar', 'v3', credentials=creds)
@@ -163,6 +175,7 @@ def create_event(
     description: str = "",
     location: str = "",
     attendees: str = "",
+    recurrence: str = "",
     jetlag: bool = False,
     account: str = ""
 ) -> str:
@@ -177,6 +190,7 @@ def create_event(
         description: Optional event description
         location: Optional event location
         attendees: Optional comma-separated list of attendee emails
+        recurrence: Optional RRULE for recurring events (e.g., "RRULE:FREQ=WEEKLY;BYDAY=MO,WE,FR;UNTIL=20260501")
         jetlag: Set to True if traveling outside your home timezone
         account: Account name from accounts.json. Uses default if not specified.
     """
@@ -204,6 +218,8 @@ def create_event(
         event['location'] = location
     if attendees:
         event['attendees'] = [{'email': e.strip()} for e in attendees.split(',')]
+    if recurrence:
+        event['recurrence'] = [recurrence]
 
     created = service.events().insert(calendarId='primary', body=event).execute()
     return f"Event created: {created.get('htmlLink')}"
@@ -220,6 +236,85 @@ def delete_event(event_id: str, account: str = "") -> str:
     service = get_calendar_service(account)
     service.events().delete(calendarId='primary', eventId=event_id).execute()
     return f"Event {event_id} deleted successfully."
+
+
+@mcp.tool()
+def respond_to_event(event_id: str, response: str, account: str = "") -> str:
+    """Respond to a calendar invite (accept, decline, or tentative).
+
+    Args:
+        event_id: The ID of the event to respond to
+        response: Response type: "accepted", "declined", or "tentative"
+        account: Account name from accounts.json. Uses default if not specified.
+    """
+    if response not in ("accepted", "declined", "tentative"):
+        return f"Invalid response '{response}'. Must be: accepted, declined, or tentative"
+
+    account = account or DEFAULT_ACCOUNT
+    user_email = ACCOUNTS[account]["email"]
+    service = get_calendar_service(account)
+
+    event = service.events().get(calendarId='primary', eventId=event_id).execute()
+    attendees = event.get('attendees', [])
+
+    found = False
+    for attendee in attendees:
+        if attendee.get('email', '').lower() == user_email.lower():
+            attendee['responseStatus'] = response
+            found = True
+            break
+
+    if not found:
+        return f"Could not find {user_email} in attendees list"
+
+    service.events().patch(calendarId='primary', eventId=event_id, body={'attendees': attendees}).execute()
+    return f"Responded '{response}' to event: {event.get('summary', 'No title')}"
+
+
+@mcp.tool()
+def accept_all_invites(days: int = 7, account: str = "") -> str:
+    """Accept all pending calendar invites.
+
+    Args:
+        days: Number of days to look ahead (default 7)
+        account: Account name from accounts.json. Uses default if not specified.
+    """
+    account = account or DEFAULT_ACCOUNT
+    user_email = ACCOUNTS[account]["email"]
+    service = get_calendar_service(account)
+
+    now = datetime.utcnow().isoformat() + 'Z'
+    end = (datetime.utcnow() + timedelta(days=days)).isoformat() + 'Z'
+
+    events_result = service.events().list(
+        calendarId='primary',
+        timeMin=now,
+        timeMax=end,
+        maxResults=50,
+        singleEvents=True,
+        orderBy='startTime'
+    ).execute()
+
+    events = events_result.get('items', [])
+    accepted = []
+
+    for event in events:
+        attendees = event.get('attendees', [])
+        for attendee in attendees:
+            if attendee.get('email', '').lower() == user_email.lower():
+                if attendee.get('responseStatus') == 'needsAction':
+                    attendee['responseStatus'] = 'accepted'
+                    service.events().patch(
+                        calendarId='primary',
+                        eventId=event['id'],
+                        body={'attendees': attendees}
+                    ).execute()
+                    accepted.append(event.get('summary', 'No title'))
+                break
+
+    if not accepted:
+        return "No pending invites found."
+    return f"Accepted {len(accepted)} invites:\n- " + "\n- ".join(accepted)
 
 
 @mcp.tool()

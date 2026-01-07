@@ -1,7 +1,7 @@
 {
   "accounts": {
-    "personal": "token_personal.json",
-    "work": "token_work.json"
+    "personal": {"token": "token_personal.json", "email": "you@gmail.com"},
+    "work": {"token": "token_work.json", "email": "you@company.com"}
   },
   "default_account": "personal",
   "home_timezone": "America/Chicago"

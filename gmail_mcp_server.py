@@ -5,7 +5,10 @@ import base64
 import json
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
+from email import encoders
 from email.utils import formataddr
+import mimetypes
 from pathlib import Path
 
 from google.auth.transport.requests import Request
@@ -18,6 +21,8 @@ SCOPES = [
     'https://www.googleapis.com/auth/gmail.readonly',
     'https://www.googleapis.com/auth/gmail.send',
     'https://www.googleapis.com/auth/gmail.modify',
+    'https://www.googleapis.com/auth/userinfo.email',
+    'openid',
 ]
 
 DIR = Path(__file__).parent
@@ -33,7 +38,7 @@ def load_config():
 
 
 config = load_config()
-ACCOUNTS = config.get("accounts", {"default": "token.json"})
+ACCOUNTS = config.get("accounts", {})
 DEFAULT_ACCOUNT = config.get("default_account", list(ACCOUNTS.keys())[0])
 
 mcp = FastMCP("gmail")
@@ -45,7 +50,9 @@ def get_gmail_service(account: str = ""):
     if account not in ACCOUNTS:
         raise ValueError(f"Unknown account: {account}. Valid accounts: {list(ACCOUNTS.keys())}")
 
-    token_file = DIR / ACCOUNTS[account]
+    account_info = ACCOUNTS[account]
+    token_file = DIR / account_info["token"]
+    expected_email = account_info["email"]
     creds = None
     if token_file.exists():
         creds = Credentials.from_authorized_user_file(str(token_file), SCOPES)
@@ -56,6 +63,15 @@ def get_gmail_service(account: str = ""):
         else:
             flow = InstalledAppFlow.from_client_secrets_file(str(CREDENTIALS_FILE), SCOPES)
             creds = flow.run_local_server(port=0)
+            # Verify the authenticated email matches expected
+            oauth2_service = build('oauth2', 'v2', credentials=creds)
+            user_info = oauth2_service.userinfo().get().execute()
+            actual_email = user_info.get('email')
+            if actual_email != expected_email:
+                raise ValueError(
+                    f"Wrong account! Expected {expected_email} but authenticated as {actual_email}. "
+                    f"Please re-authenticate with the correct Google account."
+                )
         token_file.write_text(creds.to_json())
 
     return build('gmail', 'v1', credentials=creds)
@@ -145,8 +161,21 @@ def get_user_email(service):
     return email, display_name
 
 
+def text_to_html(text: str) -> str:
+    """Convert plain text to HTML with proper paragraph tags."""
+    import html
+    paragraphs = text.strip().split('\n\n')
+    html_parts = []
+    for p in paragraphs:
+        # Escape HTML entities and convert single newlines to <br>
+        escaped = html.escape(p.strip())
+        escaped = escaped.replace('\n', '<br>\n')
+        html_parts.append(f'<p>{escaped}</p>')
+    return '\n'.join(html_parts)
+
+
 @mcp.tool()
-def send_email(to: str, subject: str, body: str, cc: str = "", bcc: str = "", reply_to_id: str = "", account: str = "") -> str:
+def send_email(to: str, subject: str, body: str, cc: str = "", bcc: str = "", reply_to_id: str = "", attachments: str = "", account: str = "") -> str:
     """Send an email.
 
     Args:
@@ -156,11 +185,12 @@ def send_email(to: str, subject: str, body: str, cc: str = "", bcc: str = "", re
         cc: Optional CC recipients (comma-separated email addresses)
         bcc: Optional BCC recipients (comma-separated email addresses)
         reply_to_id: Optional email ID to reply to (adds In-Reply-To header)
+        attachments: Optional comma-separated list of file paths to attach
         account: Account name from accounts.json. Uses default if not specified.
     """
     service = get_gmail_service(account)
 
-    message = MIMEMultipart()
+    message = MIMEMultipart('mixed')
 
     # Get sender info and set From header with display name
     sender_email, sender_name = get_user_email(service)
@@ -182,7 +212,33 @@ def send_email(to: str, subject: str, body: str, cc: str = "", bcc: str = "", re
             message['In-Reply-To'] = orig_headers['Message-ID']
             message['References'] = orig_headers['Message-ID']
 
-    message.attach(MIMEText(body, 'plain'))
+    # Create alternative part for text/html body
+    text_part = MIMEMultipart('alternative')
+    text_part.attach(MIMEText(body, 'plain'))
+    text_part.attach(MIMEText(text_to_html(body), 'html'))
+    message.attach(text_part)
+
+    # Handle attachments
+    if attachments:
+        for filepath in attachments.split(','):
+            filepath = filepath.strip()
+            if not filepath:
+                continue
+            path = Path(filepath).expanduser()
+            if not path.exists():
+                return f"Error: Attachment not found: {filepath}"
+
+            mime_type, _ = mimetypes.guess_type(str(path))
+            if mime_type is None:
+                mime_type = 'application/octet-stream'
+            main_type, sub_type = mime_type.split('/', 1)
+
+            with open(path, 'rb') as f:
+                attachment = MIMEBase(main_type, sub_type)
+                attachment.set_payload(f.read())
+            encoders.encode_base64(attachment)
+            attachment.add_header('Content-Disposition', 'attachment', filename=path.name)
+            message.attach(attachment)
 
     raw = base64.urlsafe_b64encode(message.as_bytes()).decode('utf-8')
 

@@ -2,6 +2,15 @@
 
 MCP tools for managing email, calendar, and text messages.
 
+## Address Book
+Maintain `address_book.md` with contacts encountered. For each person, include:
+- Email address
+- Role/title
+- Relationship to user
+- Communication style notes
+
+Update this file when encountering new contacts or learning more about existing ones.
+
 ## Configuration
 
 Copy `accounts.json.example` to `accounts.json` and configure your accounts:
@@ -9,13 +18,15 @@ Copy `accounts.json.example` to `accounts.json` and configure your accounts:
 ```json
 {
   "accounts": {
-    "personal": "token_personal.json",
-    "work": "token_work.json"
+    "personal": {"token": "token_personal.json", "email": "you@gmail.com"},
+    "work": {"token": "token_work.json", "email": "you@company.com"}
   },
   "default_account": "personal",
   "home_timezone": "America/Chicago"
 }
 ```
+
+The `email` field is used to verify you authenticate with the correct Google account during OAuth.
 
 ## Available Tools
 
@@ -24,7 +35,7 @@ All Gmail tools accept an `account` parameter (configured in accounts.json).
 
 - `list_emails` - List recent emails from inbox
 - `read_email` - Read full email content
-- `send_email` - Send emails (supports reply threading, CC, and BCC)
+- `send_email` - Send emails (supports reply threading, CC, BCC, and attachments)
 - `search_emails` - Search with Gmail query syntax
 
 ### Calendar
@@ -50,6 +61,7 @@ All Calendar tools accept an `account` parameter (configured in accounts.json).
 - Research CC recipients if unfamiliar to understand their role and adjust accordingly
 - Preserve CC recipients from the original email when replying — do not remove anyone unless explicitly requested
 - Always confirm before sending
+- When attaching images, always convert HEIC files to JPG first (use `sips -s format jpeg input.HEIC --out output.jpg`)
 
 ### Calendar
 - Times are interpreted in the configured home_timezone
