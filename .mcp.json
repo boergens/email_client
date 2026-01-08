@@ -11,6 +11,10 @@
     "messages": {
       "command": "/Users/kevin/Documents/newstart/email_client/.venv/bin/python",
       "args": ["/Users/kevin/Documents/newstart/email_client/messages_mcp_server.py"]
+    },
+    "browser-agent": {
+      "command": "/Users/kevin/Documents/newstart/email_client/.venv/bin/python",
+      "args": ["/Users/kevin/Documents/newstart/email_client/browser_agent_mcp_server.py"]
     }
   }
 }

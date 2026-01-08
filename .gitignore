@@ -3,6 +3,7 @@ client_secret_*.json
 token*.json
 calendar_token*.json
 accounts.json
+.env
 
 # Personal data
 address_book.md

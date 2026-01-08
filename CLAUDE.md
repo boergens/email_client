@@ -53,6 +53,12 @@ All Calendar tools accept an `account` parameter (configured in accounts.json).
 - `send_message` - Send an iMessage or SMS
 - `search_messages` - Search messages by text content
 
+### Browser Agent
+Uses OpenAI's CUA (Computer-Using Agent) model to control a browser. Requires `OPENAI_API_KEY` in `.mcp.json`.
+
+- `browser_task` - Execute a browser task (opens visible browser window)
+- `browser_task_headless` - Execute a browser task without visible window
+
 ## Guidelines
 
 ### Email
@@ -70,3 +76,8 @@ All Calendar tools accept an `account` parameter (configured in accounts.json).
 ### Messages
 - Text messages are typically more casual than email
 - Always confirm before sending
+
+### Browser Agent
+- For purchases, the agent will navigate to checkout but you should manually enter payment info
+- Use headless mode for simple data gathering, visible mode when you need to intervene
+- Costs ~$0.01-0.05 per task depending on complexity (OpenAI API charges)
