@@ -34,9 +34,10 @@ The `email` field is used to verify you authenticate with the correct Google acc
 All Gmail tools accept an `account` parameter (configured in accounts.json).
 
 - `list_emails` - List recent emails from inbox
-- `read_email` - Read full email content
+- `read_email` - Read full email content (shows attachment info if present)
 - `send_email` - Send emails (supports reply threading, CC, BCC, and attachments)
 - `search_emails` - Search with Gmail query syntax
+- `download_attachment` - Download an attachment from an email to ~/Downloads or specified path
 
 ### Calendar
 All Calendar tools accept an `account` parameter (configured in accounts.json).
@@ -62,6 +63,7 @@ Uses OpenAI's CUA (Computer-Using Agent) model to control a browser. Requires `O
 ## Guidelines
 
 ### Email
+- Before sending, check the address book for the recipient's `ai_transparent` setting to determine if the email should disclose it was drafted by Claude
 - Before drafting a reply, read recent emails with that person to understand the relationship and pick the appropriate tone automatically
 - Check CC recipients from the email - they can dramatically shift tone (e.g., a VP on CC may require more formal/structured communication)
 - Research CC recipients if unfamiliar to understand their role and adjust accordingly
