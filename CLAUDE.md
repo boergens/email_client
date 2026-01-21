@@ -42,11 +42,37 @@ All Gmail tools accept an `account` parameter (configured in accounts.json).
 ### Calendar
 All Calendar tools accept an `account` parameter (configured in accounts.json).
 
-- `list_events` - List upcoming calendar events
+- `list_calendars` - List all calendars accessible to an account (including shared calendars)
+- `list_events` - List upcoming calendar events (supports `calendar_id` for shared calendars)
 - `get_event` - Get details of a specific event
 - `create_event` - Create a new calendar event
 - `delete_event` - Delete a calendar event
-- `search_events` - Search for calendar events
+- `search_events` - Search for calendar events (supports `calendar_id` for shared calendars)
+
+### Availability Script
+Check combined availability across multiple calendars:
+
+```bash
+python availability.py                      # Check today
+python availability.py -n 5                 # Next 5 weekdays
+python availability.py -n 10 --weekends     # Include weekends
+python availability.py -d 2026-01-22 -n 3   # Start from specific date
+```
+
+Configure calendars in `availability_calendars.json`:
+```json
+{
+    "calendars": [
+        {"id": "primary", "account": "kevin", "name": "Kevin"},
+        {"id": "someone@gmail.com", "account": "kevin", "name": "Shared cal"}
+    ],
+    "work_hours": {"start": 8, "end": 17}
+}
+```
+
+- Excludes weekends by default (use `--weekends` to include)
+- For today, only shows future availability (rounds to next 15 min)
+- Use `list_calendars` MCP tool to find calendar IDs
 
 ### Messages (iMessage/SMS)
 - `list_conversations` - List recent conversations

@@ -2,9 +2,10 @@
 """Check availability across multiple calendars.
 
 Usage:
-    python availability.py                    # Check today
-    python availability.py 2026-01-22         # Check specific date
-    python availability.py 2026-01-22 3       # Check 3 days starting from date
+    python availability.py                      # Check today (weekdays only)
+    python availability.py -d 2026-01-22        # Check specific date
+    python availability.py -n 5                 # Check next 5 weekdays
+    python availability.py -n 10 --weekends     # Include weekends
 
 Config file (availability_calendars.json):
 {
@@ -16,8 +17,8 @@ Config file (availability_calendars.json):
 }
 """
 
+import argparse
 import json
-import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -161,30 +162,74 @@ def format_duration(start: datetime, end: datetime) -> str:
     return f"{mins}m"
 
 
+def is_weekend(date) -> bool:
+    """Check if date is Saturday (5) or Sunday (6)."""
+    return date.weekday() >= 5
+
+
 def main():
+    parser = argparse.ArgumentParser(description="Check availability across multiple calendars")
+    parser.add_argument("-d", "--date", help="Start date (YYYY-MM-DD), default: today")
+    parser.add_argument("-n", "--days", type=int, default=1, help="Number of days to check (default: 1)")
+    parser.add_argument("--weekends", action="store_true", help="Include weekends (excluded by default)")
+    args = parser.parse_args()
+
     config = load_calendar_config()
     calendars = config["calendars"]
     work_start_hour = config.get("work_hours", {}).get("start", 8)
     work_end_hour = config.get("work_hours", {}).get("end", 17)
 
-    # Parse arguments
     tz = ZoneInfo(TIMEZONE)
-    if len(sys.argv) > 1:
-        start_date = datetime.strptime(sys.argv[1], "%Y-%m-%d").date()
-    else:
-        start_date = datetime.now(tz).date()
+    now = datetime.now(tz)
 
-    num_days = int(sys.argv[2]) if len(sys.argv) > 2 else 1
+    if args.date:
+        start_date = datetime.strptime(args.date, "%Y-%m-%d").date()
+    else:
+        start_date = now.date()
 
     print(f"Checking availability across {len(calendars)} calendar(s)")
-    print(f"Work hours: {work_start_hour}:00 AM - {work_end_hour % 12 or 12}:00 PM Central\n")
+    print(f"Work hours: {work_start_hour}:00 AM - {work_end_hour % 12 or 12}:00 PM Central")
+    if not args.weekends:
+        print("(excluding weekends)")
+    print()
 
-    for day_offset in range(num_days):
+    days_checked = 0
+    day_offset = 0
+
+    while days_checked < args.days:
         current_date = start_date + timedelta(days=day_offset)
-        day_start = datetime(current_date.year, current_date.month, current_date.day,
-                            work_start_hour, 0, tzinfo=tz)
+        day_offset += 1
+
+        # Skip weekends unless --weekends flag is set
+        if not args.weekends and is_weekend(current_date):
+            continue
+
+        days_checked += 1
+
+        # For today, start from current time (rounded up to next 15 min)
+        if current_date == now.date():
+            # Round up to next 15-minute mark
+            minutes = now.minute
+            round_up = 15 - (minutes % 15) if minutes % 15 != 0 else 0
+            earliest = now + timedelta(minutes=round_up)
+            earliest = earliest.replace(second=0, microsecond=0)
+
+            work_start = datetime(current_date.year, current_date.month, current_date.day,
+                                 work_start_hour, 0, tzinfo=tz)
+            day_start = max(earliest, work_start)
+        else:
+            day_start = datetime(current_date.year, current_date.month, current_date.day,
+                                work_start_hour, 0, tzinfo=tz)
+
         day_end = datetime(current_date.year, current_date.month, current_date.day,
                           work_end_hour, 0, tzinfo=tz)
+
+        # Skip if day is already over
+        if day_start >= day_end:
+            print(f"=== {current_date.strftime('%A, %B %-d, %Y')} ===")
+            print("  (day ended)")
+            print()
+            continue
 
         # Query full day for busy times
         query_start = datetime(current_date.year, current_date.month, current_date.day, 0, 0, tzinfo=tz)
