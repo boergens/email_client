@@ -7,6 +7,7 @@ accounts.json
 
 # Personal data
 address_book.md
+letters/
 
 # Virtual environment
 .venv/
