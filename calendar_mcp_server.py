@@ -92,20 +92,48 @@ def get_calendar_service(account: str = ""):
 
 
 @mcp.tool()
-def list_events(days: int = 7, max_results: int = 20, account: str = "") -> str:
+def list_calendars(account: str = "") -> str:
+    """List all calendars accessible to this account, including shared calendars.
+
+    Args:
+        account: Account name from accounts.json. Uses default if not specified.
+    """
+    service = get_calendar_service(account)
+    calendars_result = service.calendarList().list().execute()
+    calendars = calendars_result.get('items', [])
+
+    if not calendars:
+        return "No calendars found."
+
+    output = []
+    for cal in calendars:
+        access_role = cal.get('accessRole', 'unknown')
+        primary = " (PRIMARY)" if cal.get('primary') else ""
+        output.append(
+            f"ID: {cal['id']}\n"
+            f"Name: {cal.get('summary', 'No name')}{primary}\n"
+            f"Access: {access_role}\n"
+        )
+
+    return "\n---\n".join(output)
+
+
+@mcp.tool()
+def list_events(days: int = 7, max_results: int = 20, account: str = "", calendar_id: str = "primary") -> str:
     """List upcoming calendar events.
 
     Args:
         days: Number of days to look ahead (default 7)
         max_results: Maximum number of events to return (default 20)
         account: Account name from accounts.json. Uses default if not specified.
+        calendar_id: Calendar ID to query (default "primary"). Use list_calendars to see available calendars.
     """
     service = get_calendar_service(account)
     now = datetime.utcnow().isoformat() + 'Z'
     end = (datetime.utcnow() + timedelta(days=days)).isoformat() + 'Z'
 
     events_result = service.events().list(
-        calendarId='primary',
+        calendarId=calendar_id,
         timeMin=now,
         timeMax=end,
         maxResults=max_results,
@@ -318,7 +346,7 @@ def accept_all_invites(days: int = 7, account: str = "") -> str:
 
 
 @mcp.tool()
-def search_events(query: str, days: int = 30, max_results: int = 20, account: str = "") -> str:
+def search_events(query: str, days: int = 30, max_results: int = 20, account: str = "", calendar_id: str = "primary") -> str:
     """Search for calendar events.
 
     Args:
@@ -326,13 +354,14 @@ def search_events(query: str, days: int = 30, max_results: int = 20, account: st
         days: Number of days to search ahead (default 30)
         max_results: Maximum number of results (default 20)
         account: Account name from accounts.json. Uses default if not specified.
+        calendar_id: Calendar ID to search (default "primary"). Use list_calendars to see available calendars.
     """
     service = get_calendar_service(account)
     now = datetime.utcnow().isoformat() + 'Z'
     end = (datetime.utcnow() + timedelta(days=days)).isoformat() + 'Z'
 
     events_result = service.events().list(
-        calendarId='primary',
+        calendarId=calendar_id,
         timeMin=now,
         timeMax=end,
         maxResults=max_results,

@@ -8,6 +8,8 @@ accounts.json
 # Personal data
 address_book.md
 letters/
+availability_calendars.json
+shared_calendars.json
 
 # Virtual environment
 .venv/
